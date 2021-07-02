@@ -105,22 +105,18 @@ class ImageFolder(Dataset):
 
 class ListDataset(Dataset):
     def __init__(self, list_path, img_size=416, multiscale=True, transform=None):
-        # with open(list_path, "r") as file:
-        #     self.img_files = file.readlines()
+        with open(list_path, "r") as file:
+            self.img_files = file.readlines()
 
-        # self.label_files = []
-        # for path in self.img_files:
-        #     image_dir = os.path.dirname(path)
-        #     label_dir = "labels".join(image_dir.rsplit("images", 1))
-        #     assert label_dir != image_dir, \
-        #         f"Image path must contain a folder named 'images'! \n'{image_dir}'"
-        #     label_file = os.path.join(label_dir, os.path.basename(path))
-        #     label_file = os.path.splitext(label_file)[0] + '.txt'
-        #     self.label_files.append(label_file)
-
-        self.img_files = sorted(glob.glob(os.path.join(list_path, 'vnet_frames', '*.jpg')))
-        self.label_files = sorted(glob.glob(os.path.join(list_path, 'labels', '*.txt')))
-        assert len(self.img_files) == len(self.label_files)
+        self.label_files = []
+        for path in self.img_files:
+            image_dir = os.path.dirname(path)
+            label_dir = "labels".join(image_dir.rsplit("images", 1))
+            assert label_dir != image_dir, \
+                f"Image path must contain a folder named 'images'! \n'{image_dir}'"
+            label_file = os.path.join(label_dir, os.path.basename(path))
+            label_file = os.path.splitext(label_file)[0] + '.txt'
+            self.label_files.append(label_file)
 
         self.img_size = img_size
         self.max_objects = 100

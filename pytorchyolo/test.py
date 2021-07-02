@@ -182,7 +182,6 @@ def _create_validation_data_loader_voxels(img_path, num_bins, batch_size, img_si
         pin_memory=True,
         collate_fn=dataset.collate_fn)
     return dataloader
-
 def run():
     print_environment_info()
     parser = argparse.ArgumentParser(description="Evaluate validation data.")
