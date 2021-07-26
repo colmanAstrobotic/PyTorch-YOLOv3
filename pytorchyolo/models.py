@@ -1,5 +1,6 @@
 from __future__ import division
 from itertools import chain
+import os
 
 import torch
 import torch.nn as nn
@@ -56,7 +57,7 @@ def create_modules(module_defs):
             )
             if bn:
                 modules.add_module(f"batch_norm_{module_i}",
-                                   nn.BatchNorm2d(filters, momentum=0.9, eps=1e-5))
+                                   nn.BatchNorm2d(filters, momentum=0.1, eps=1e-5))
             if module_def["activation"] == "leaky":
                 modules.add_module(f"leaky_{module_i}", nn.LeakyReLU(0.1))
             if module_def["activation"] == "mish":
@@ -208,8 +209,14 @@ class Darknet(nn.Module):
 
         # Establish cutoff for loading backbone weights
         cutoff = None
-        if "darknet53.conv.74" in weights_path:
-            cutoff = 75
+        # If the weights file has a cutoff, we can find out about it by looking at the filename
+        # examples: darknet53.conv.74 -> cutoff is 74
+        filename = os.path.basename(weights_path)
+        if ".conv." in filename:
+            try:
+                cutoff = int(filename.split(".")[-1])  # use last part of filename
+            except ValueError:
+                pass
 
         ptr = 0
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
