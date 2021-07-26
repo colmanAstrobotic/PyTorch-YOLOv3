@@ -1,0 +1,4 @@
+classes= 7
+train=/home/colmanglagovich/dev/AstroboticEventCameras/EventPipeline/datasets/prophesee_1meg/trainset_small
+valid=/home/colmanglagovich/dev/AstroboticEventCameras/EventPipeline/datasets/prophesee_1meg/trainset_small
+names=../data/prophesee.names

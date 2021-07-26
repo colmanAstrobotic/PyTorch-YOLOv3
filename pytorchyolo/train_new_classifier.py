@@ -74,6 +74,7 @@ def run():
     parser.add_argument("--nms_thres", type=float, default=0.5, help="Evaluation: IOU threshold for non-maximum suppression")
     parser.add_argument("--logdir", type=str, default="logs", help="Directory for training log files (e.g. for TensorBoard)")
     parser.add_argument("--seed", type=int, default=-1, help="Makes results reproducable. Set -1 to disable.")
+
     args = parser.parse_args()
     print(f"Command line arguments: {args}")
 
@@ -91,6 +92,7 @@ def run():
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
+    num_classes = len(class_names)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ############
@@ -99,11 +101,22 @@ def run():
 
     model = load_model(args.model, args.pretrained_weights)
 
-
-
     # Print model
     if args.verbose:
         summary(model, input_size=(3, model.hyperparams['height'], model.hyperparams['height']))
+    
+    print('------------------------------------------------------------')
+    print('Before modifying num_classes')
+    print(model.module_list)
+    model.module_list[82].yolo_82.num_classes = 7
+    model.module_list[82].yolo_82.num_classes = 7 + 5
+    model.module_list[94].yolo_94.num_classes = 7
+    model.module_list[94].yolo_94.num_classes = 7 + 5
+    model.module_list[106].yolo_106.num_classes = 7
+    model.module_list[106].yolo_106.num_classes = 7 + 5
+    print('------------------------------------------------------------')
+    print('After modifying num_classes')
+    print(model.module_list)
 
     mini_batch_size = model.hyperparams['batch'] // model.hyperparams['subdivisions']
 
@@ -221,7 +234,7 @@ def run():
         # #############
 
         # Save model to checkpoint file
-        if epoch % args.checkpoint_interval == 0 or epoch == (args.epochs-1):
+        if epoch % args.checkpoint_interval == 0:
             checkpoint_path = f"checkpoints/yolov3_ckpt_{epoch}.pth"
             print(f"---- Saving checkpoint to: '{checkpoint_path}' ----")
             torch.save(model.state_dict(), checkpoint_path)

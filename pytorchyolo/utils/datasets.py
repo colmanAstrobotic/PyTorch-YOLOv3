@@ -52,6 +52,10 @@ def resize(image, size):
     image = F.interpolate(image.unsqueeze(0), size=size, mode="nearest").squeeze(0)
     return image
 
+def resize_interp(image, size):
+    image = F.interpolate(image.unsqueeze(0), size=size, mode="bilinear", align_corners=False).squeeze(0)
+    return image
+
 class VoxelFolder(Dataset):
     def __init__(self, folder_path, num_bins=3, sensor_size=(1280, 720), transform=None):
         self.files = sorted(glob.glob("%s/*.npz" % folder_path))
@@ -105,18 +109,22 @@ class ImageFolder(Dataset):
 
 class ListDataset(Dataset):
     def __init__(self, list_path, img_size=416, multiscale=True, transform=None):
-        with open(list_path, "r") as file:
-            self.img_files = file.readlines()
+        # with open(list_path, "r") as file:
+        #     self.img_files = file.readlines()
 
-        self.label_files = []
-        for path in self.img_files:
-            image_dir = os.path.dirname(path)
-            label_dir = "labels".join(image_dir.rsplit("images", 1))
-            assert label_dir != image_dir, \
-                f"Image path must contain a folder named 'images'! \n'{image_dir}'"
-            label_file = os.path.join(label_dir, os.path.basename(path))
-            label_file = os.path.splitext(label_file)[0] + '.txt'
-            self.label_files.append(label_file)
+        # self.label_files = []
+        # for path in self.img_files:
+        #     image_dir = os.path.dirname(path)
+        #     label_dir = "labels".join(image_dir.rsplit("images", 1))
+        #     assert label_dir != image_dir, \
+        #         f"Image path must contain a folder named 'images'! \n'{image_dir}'"
+        #     label_file = os.path.join(label_dir, os.path.basename(path))
+        #     label_file = os.path.splitext(label_file)[0] + '.txt'
+        #     self.label_files.append(label_file)
+
+        self.img_files = sorted(glob.glob(os.path.join(list_path, 'images', '*.jpg')))
+        self.label_files = sorted(glob.glob(os.path.join(list_path, 'labels', '*.txt')))
+        assert len(self.img_files) == len(self.label_files)
 
         self.img_size = img_size
         self.max_objects = 100
@@ -193,11 +201,16 @@ class ListDataset(Dataset):
         return len(self.img_files)
 
 
-class ListDatasetVoxels(Dataset):
-    def __init__(self, data_dir, num_bins, img_size=416, multiscale=True, transform=None):
-        self.aer_files = sorted(glob.glob(os.path.join(data_dir, 'windows', '*.npz')))
-        self.label_files = sorted(glob.glob(os.path.join(data_dir, 'labels', '*.txt')))
-        assert len(self.aer_files) == len(self.label_files), 'incorrect number of labels'
+class VoxelListDataset(Dataset):
+    '''
+    Yields normalized Voxel Grid tensor for input into reconstruction network.
+    '''
+    def __init__(self, list_path, device, img_size=416, sensor_size=(1280,720), multiscale=True, transform=None, num_bins=5):
+
+        self.img_files = sorted(glob.glob(os.path.join(list_path, 'windows', '*.npz')))
+        self.label_files = sorted(glob.glob(os.path.join(list_path, 'labels', '*.txt')))
+        assert len(self.img_files) == len(self.label_files)
+
         self.img_size = img_size
         self.max_objects = 100
         self.multiscale = multiscale
@@ -207,27 +220,41 @@ class ListDatasetVoxels(Dataset):
         self.transform = transform
 
         self.num_bins = num_bins
+        self.sensor_size = sensor_size
+
+        self.voxel_transform = event_transforms.ToVoxelGridPytorch(num_bins, device=device)
+        self.voxel_norm = event_transforms.VoxelNormalize()
 
     def __getitem__(self, index):
 
         # ---------
         #  Image
         # ---------
-        try:
+        # try:
 
-            img_path = self.aer_files[index % len(self.aer_files)].rstrip()
+        img_path = self.img_files[index % len(self.img_files)].rstrip()
+        npfile = np.load(img_path)
+        t = npfile['t']
+        x = npfile['x']
+        y = npfile['y']
+        p = npfile['p']
+        sample = event_reader.EventData(t, x, y, p, self.sensor_size[0], self.sensor_size[1])
+        sample = self.voxel_transform(sample)
+        sample = self.voxel_norm(sample)
+        # TODO: The image augmentation they do on this tensor requires numpy, not Tensor
+        img = sample.cpu().numpy().transpose(1,2,0)
 
-            img = open_voxel_img(img_path, width=1280, height=720, num_bins=self.num_bins)
+            # img = np.array(Image.open(img_path).convert('RGB'), dtype=np.uint8)
 
-        except Exception:
-            print(f"Could not read image '{img_path}'.")
-            return
+        # except Exception:
+        #     print(f"Could not read image '{img_path}'.")
+        #     return
 
         # ---------
         #  Label
         # ---------
         try:
-            label_path = self.label_files[index % len(self.aer_files)].rstrip()
+            label_path = self.label_files[index % len(self.img_files)].rstrip()
 
             # Ignore warning if file is empty
             with warnings.catch_warnings():
@@ -242,11 +269,10 @@ class ListDatasetVoxels(Dataset):
         # -----------
         if self.transform:
             # try:
-            #     img, bb_targets = self.transform((img, boxes))
-            # except Exception:
-            #     print("Could not apply transform.")
-            #     return
             img, bb_targets = self.transform((img, boxes))
+            # except Exception:
+                # print("Could not apply transform.")
+                # return
 
         return img_path, img, bb_targets
 
@@ -264,7 +290,7 @@ class ListDatasetVoxels(Dataset):
                 range(self.min_size, self.max_size + 1, 32))
 
         # Resize images to input shape
-        imgs = torch.stack([resize(img, self.img_size) for img in imgs])
+        imgs = torch.stack([resize_interp(img, self.img_size) for img in imgs])
 
         # Add sample index to targets
         for i, boxes in enumerate(bb_targets):
@@ -274,4 +300,4 @@ class ListDatasetVoxels(Dataset):
         return paths, imgs, bb_targets
 
     def __len__(self):
-        return len(self.aer_files)
+        return len(self.img_files)

@@ -33,3 +33,11 @@ AUGMENTATION_TRANSFORMS = transforms.Compose([
     RelativeLabels(),
     ToTensor(),
 ])
+
+VOXEL_AUGMENTATION_TRANSFORMS = transforms.Compose([
+    AbsoluteLabels(), # Should work
+    # DefaultAug(), # Won't work, very image-specific
+    PadSquare(), # Unsure if this will work
+    RelativeLabels(), # Should work
+    ToTensor(), # Should work
+])

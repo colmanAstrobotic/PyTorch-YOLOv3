@@ -13,19 +13,26 @@ import torch.optim as optim
 from pytorchyolo.models import load_model
 from pytorchyolo.utils.logger import Logger
 from pytorchyolo.utils.utils import to_cpu, load_classes, print_environment_info, provide_determinism, worker_seed_set
-from pytorchyolo.utils.datasets import ListDatasetVoxels
-from pytorchyolo.utils.augmentations import AUGMENTATION_TRANSFORMS
+from pytorchyolo.utils.datasets import ListDataset, VoxelListDataset
+from pytorchyolo.utils.augmentations import AUGMENTATION_TRANSFORMS, VOXEL_AUGMENTATION_TRANSFORMS
 # from pytorchyolo.utils.transforms import DEFAULT_TRANSFORMS
 from pytorchyolo.utils.parse_config import parse_data_config
 from pytorchyolo.utils.loss import compute_loss
-from pytorchyolo.test import _evaluate, _create_validation_data_loader_voxels
+from pytorchyolo.test import _evaluate, _create_validation_data_loader
 
 from terminaltables import AsciiTable
 
 from torchsummary import summary
 
+import sys
+sys.path.append('/home/colmanglagovich/dev/AstroboticEventCameras/EventPipeline')
+from reconstruction.voxel_reconstruction.common import VictorNet2, robust_normalize
 
-def _create_data_loader(img_path, num_bins, batch_size, img_size, n_cpu, multiscale_training=False):
+import numpy as np
+import cv2
+
+
+def _create_data_loader(img_path, batch_size, img_size, sensor_size, num_bins, n_cpu, device, multiscale_training=False):
     """Creates a DataLoader for training.
 
     :param img_path: Path to file containing all paths to training images.
@@ -41,12 +48,14 @@ def _create_data_loader(img_path, num_bins, batch_size, img_size, n_cpu, multisc
     :return: Returns DataLoader
     :rtype: DataLoader
     """
-    dataset = ListDatasetVoxels(
+    dataset = VoxelListDataset(
         img_path,
-        num_bins=num_bins,
+        device=device,
         img_size=img_size,
+        sensor_size=sensor_size, 
         multiscale=multiscale_training,
-        transform=AUGMENTATION_TRANSFORMS)
+        transform=VOXEL_AUGMENTATION_TRANSFORMS,
+        num_bins=num_bins)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -75,7 +84,9 @@ def run():
     parser.add_argument("--nms_thres", type=float, default=0.5, help="Evaluation: IOU threshold for non-maximum suppression")
     parser.add_argument("--logdir", type=str, default="logs", help="Directory for training log files (e.g. for TensorBoard)")
     parser.add_argument("--seed", type=int, default=-1, help="Makes results reproducable. Set -1 to disable.")
-    parser.add_argument("--num_bins", type=int, required=True)
+
+    parser.add_argument('--sensor_size', type=int, nargs='+')
+    parser.add_argument('--num_bins', type=int)
     args = parser.parse_args()
     print(f"Command line arguments: {args}")
 
@@ -101,9 +112,15 @@ def run():
 
     model = load_model(args.model, args.pretrained_weights)
 
+    recon_model = VictorNet2(5)
+    recon_model.train()
+    recon_model.to(device)
+
+
+
     # Print model
     if args.verbose:
-        summary(model, input_size=(args.num_bins, model.hyperparams['height'], model.hyperparams['height']))
+        summary(model, input_size=(3, model.hyperparams['height'], model.hyperparams['height']))
 
     mini_batch_size = model.hyperparams['batch'] // model.hyperparams['subdivisions']
 
@@ -114,16 +131,17 @@ def run():
     # Load training dataloader
     dataloader = _create_data_loader(
         train_path,
-        args.num_bins,
         mini_batch_size,
         model.hyperparams['height'],
+        args.sensor_size,
+        args.num_bins,
         args.n_cpu,
+        device,
         args.multiscale_training)
 
     # Load validation dataloader
-    validation_dataloader = _create_validation_data_loader_voxels(
+    validation_dataloader = _create_validation_data_loader(
         valid_path,
-        args.num_bins,
         mini_batch_size,
         model.hyperparams['height'],
         args.n_cpu)
@@ -133,6 +151,7 @@ def run():
     # ################
 
     params = [p for p in model.parameters() if p.requires_grad]
+    recon_params = [p for p in recon_model.parameters() if p.requires_grad]
 
     if (model.hyperparams['optimizer'] in [None, "adam"]):
         optimizer = optim.Adam(
@@ -140,6 +159,8 @@ def run():
             lr=model.hyperparams['learning_rate'],
             weight_decay=model.hyperparams['decay'],
         )
+        optimizer.add_param_group({'params': recon_params, 'lr':.01})
+        print(optimizer)
     elif (model.hyperparams['optimizer'] == "sgd"):
         optimizer = optim.SGD(
             params,
@@ -159,8 +180,22 @@ def run():
             batches_done = len(dataloader) * epoch + batch_i
 
             imgs = imgs.to(device, non_blocking=True)
+
+            ##############
+            # Run reconstruction model
+            ##############
+            imgs_recon = recon_model(imgs)
+            imgs_recon = robust_normalize(imgs_recon).squeeze(1)
+
+            imgs_recon = torch.stack((imgs_recon, imgs_recon, imgs_recon), dim=1)
+
+            imgs = imgs_recon
+
             targets = targets.to(device)
 
+            ##############
+            # Run YOLO model
+            ##############
             outputs = model(imgs)
 
             loss, loss_components = compute_loss(outputs, targets, model)
@@ -223,10 +258,16 @@ def run():
         # #############
 
         # Save model to checkpoint file
-        if epoch % args.checkpoint_interval == 0:
+        if epoch % args.checkpoint_interval == 0 or epoch == (args.epochs-1):
             checkpoint_path = f"checkpoints/yolov3_ckpt_{epoch}.pth"
             print(f"---- Saving checkpoint to: '{checkpoint_path}' ----")
             torch.save(model.state_dict(), checkpoint_path)
+            reconstruction_checkpoint_path = f"checkpoints/VNET2{epoch}.pth"
+            print(f"---- Saving checkpoint to: '{reconstruction_checkpoint_path}' ----")
+            torch.save(recon_model.state_dict(), reconstruction_checkpoint_path)
+            image = imgs_recon[0,0,...].detach().cpu().numpy()
+            image = (image*255).astype(np.uint8)
+            cv2.imwrite(f'checkpoints/batch_image{epoch}.jpg', image)
 
         # ########
         # Evaluate

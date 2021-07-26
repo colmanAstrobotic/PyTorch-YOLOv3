@@ -1,7 +1,6 @@
 #!/bin/bash
 
 NUM_CLASSES=$1
-CHANNELS=$2
 
 echo "
 [net]
@@ -13,7 +12,7 @@ batch=16
 subdivisions=1
 width=416
 height=416
-channels=$CHANNELS
+channels=3
 momentum=0.9
 decay=0.0005
 angle=0
