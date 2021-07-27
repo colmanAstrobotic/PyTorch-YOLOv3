@@ -88,6 +88,7 @@ def run():
 
     parser.add_argument('--sensor_size', type=int, nargs='+')
     parser.add_argument('--num_bins', type=int)
+    parser.add_argument('--num_encoders', type=int)
     args = parser.parse_args()
     print(f"Command line arguments: {args}")
 
@@ -113,7 +114,7 @@ def run():
 
     model = load_model(args.model, args.pretrained_weights)
 
-    recon_model = UNet(num_input_channels=5, num_encoders=1)
+    recon_model = UNet(num_input_channels=5, num_encoders=args.num_encoders)
     recon_model.train()
     recon_model.to(device)
 
