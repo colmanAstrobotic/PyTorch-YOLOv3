@@ -27,7 +27,7 @@ from torchsummary import summary
 import sys
 sys.path.append('/home/colmanglagovich/dev/AstroboticEventCameras/EventPipeline')
 from reconstruction.voxel_reconstruction.common import robust_normalize
-fromm reconstruction.voxel_reconstruction.rpg_e2vid.model.unet import UNet
+from reconstruction.voxel_reconstruction.rpg_e2vid.model.unet import UNet
 
 import numpy as np
 import cv2
@@ -113,7 +113,7 @@ def run():
 
     model = load_model(args.model, args.pretrained_weights)
 
-    recon_model = VictorNet2(5)
+    recon_model = UNet(num_input_channels=5, num_encoders=1)
     recon_model.train()
     recon_model.to(device)
 
@@ -122,6 +122,7 @@ def run():
     # Print model
     if args.verbose:
         summary(model, input_size=(3, model.hyperparams['height'], model.hyperparams['height']))
+        print(recon_model)
 
     mini_batch_size = model.hyperparams['batch'] // model.hyperparams['subdivisions']
 
