@@ -18,7 +18,7 @@ from pytorchyolo.utils.augmentations import AUGMENTATION_TRANSFORMS, VOXEL_AUGME
 # from pytorchyolo.utils.transforms import DEFAULT_TRANSFORMS
 from pytorchyolo.utils.parse_config import parse_data_config
 from pytorchyolo.utils.loss import compute_loss
-from pytorchyolo.test import _evaluate, _create_validation_data_loader
+from pytorchyolo.test import _evaluate_voxel, _create_validation_data_loader_voxel
 
 from terminaltables import AsciiTable
 
@@ -140,11 +140,14 @@ def run():
         args.multiscale_training)
 
     # Load validation dataloader
-    validation_dataloader = _create_validation_data_loader(
+    validation_dataloader = _create_validation_data_loader_voxel(
         valid_path,
         mini_batch_size,
         model.hyperparams['height'],
-        args.n_cpu)
+        args.sensor_size,
+        args.num_bins,
+        args.n_cpu,
+        device)
 
     # ################
     # Create optimizer
@@ -159,7 +162,7 @@ def run():
             lr=model.hyperparams['learning_rate'],
             weight_decay=model.hyperparams['decay'],
         )
-        optimizer.add_param_group({'params': recon_params, 'lr':.01})
+        optimizer.add_param_group({'params': recon_params, 'lr':.001})
         print(optimizer)
     elif (model.hyperparams['optimizer'] == "sgd"):
         optimizer = optim.SGD(
@@ -262,7 +265,7 @@ def run():
             checkpoint_path = f"checkpoints/yolov3_ckpt_{epoch}.pth"
             print(f"---- Saving checkpoint to: '{checkpoint_path}' ----")
             torch.save(model.state_dict(), checkpoint_path)
-            reconstruction_checkpoint_path = f"checkpoints/VNET2{epoch}.pth"
+            reconstruction_checkpoint_path = f"checkpoints/VNET2_{epoch}.pth"
             print(f"---- Saving checkpoint to: '{reconstruction_checkpoint_path}' ----")
             torch.save(recon_model.state_dict(), reconstruction_checkpoint_path)
             image = imgs_recon[0,0,...].detach().cpu().numpy()
@@ -276,8 +279,9 @@ def run():
         if epoch % args.evaluation_interval == 0:
             print("\n---- Evaluating Model ----")
             # Evaluate the model on the validation set
-            metrics_output = _evaluate(
+            metrics_output = _evaluate_voxel(
                 model,
+                recon_model,
                 validation_dataloader,
                 class_names,
                 img_size=model.hyperparams['height'],
