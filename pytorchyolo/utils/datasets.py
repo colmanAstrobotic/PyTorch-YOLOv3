@@ -222,7 +222,7 @@ class VoxelListDataset(Dataset):
         self.num_bins = num_bins
         self.sensor_size = sensor_size
 
-        self.voxel_transform = event_transforms.ToVoxelGridPytorch(num_bins, device=device)
+        self.voxel_transform = event_transforms.ToVoxelGridPytorch(num_bins, device=torch.device('cpu'))
         self.voxel_norm = event_transforms.VoxelNormalize()
 
     def __getitem__(self, index):
